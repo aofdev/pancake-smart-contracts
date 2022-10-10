@@ -1,3 +1,5 @@
+/* eslint-disable */
+
 import { formatUnits, parseEther } from "ethers/lib/utils";
 import { artifacts, contract } from "hardhat";
 import { assert, expect } from "chai";
@@ -9,6 +11,7 @@ const PancakePair = artifacts.require("./PancakePair.sol");
 const PancakeRouter = artifacts.require("./PancakeRouter.sol");
 const PancakeZapV1 = artifacts.require("./PancakeZapV1.sol");
 const WBNB = artifacts.require("./WBNB.sol");
+const MinimalForwarder = artifacts.require("@openzeppelin/contracts/metatx/MinimalForwarder.sol");
 
 contract("PancakeZapV1", ([alice, bob, carol, david, erin]) => {
   let maxZapReverseRatio;
@@ -21,6 +24,7 @@ contract("PancakeZapV1", ([alice, bob, carol, david, erin]) => {
   let tokenA;
   let tokenC;
   let wrappedBNB;
+  let minimalForwarder;
 
   before(async () => {
     // Deploy Factory
@@ -29,8 +33,11 @@ contract("PancakeZapV1", ([alice, bob, carol, david, erin]) => {
     // Deploy Wrapped BNB
     wrappedBNB = await WBNB.new({ from: alice });
 
+    // Deploy MinimalForwarder
+    minimalForwarder = await MinimalForwarder.new({ from: alice });
+
     // Deploy Router
-    pancakeRouter = await PancakeRouter.new(pancakeFactory.address, wrappedBNB.address, { from: alice });
+    pancakeRouter = await PancakeRouter.new(pancakeFactory.address, wrappedBNB.address, erin, minimalForwarder.address, { from: alice });
 
     // Deploy ZapV1
     maxZapReverseRatio = 100; // 1%
@@ -54,6 +61,7 @@ contract("PancakeZapV1", ([alice, bob, carol, david, erin]) => {
     assert.equal(String(await pairBC.totalSupply()), parseEther("0").toString());
     assert.equal(String(await pairAC.totalSupply()), parseEther("0").toString());
 
+    console.log("pairAC", pairAC.address);
     // Mint and approve all contracts
     for (let thisUser of [alice, bob, carol, david, erin]) {
       await tokenA.mintTokens(parseEther("2000000"), { from: thisUser });
@@ -110,7 +118,6 @@ contract("PancakeZapV1", ([alice, bob, carol, david, erin]) => {
        * address to,
        * uint256 deadline
        */
-
       // 1 A = 1 C
       let result = await pancakeRouter.addLiquidity(
         tokenC.address,

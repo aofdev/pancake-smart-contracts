@@ -1,33 +1,67 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity =0.6.6;
-
-import '@uniswap/lib/contracts/libraries/TransferHelper.sol';
-
+pragma solidity 0.8.17;
 import "./interfaces/IPancakeRouter02.sol";
 import "./interfaces/IPancakeFactory.sol";
 import "./libraries/PancakeLibrary.sol";
-import "./libraries/SafeMath.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IWETH.sol";
+import "./libraries/SafeMath.sol";
 
-contract PancakeRouter is IPancakeRouter02 {
+import '@uniswap/lib/contracts/libraries/TransferHelper.sol';
+import "@openzeppelin/contracts/metatx/ERC2771Context.sol";
+import "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
     using SafeMath for uint256;
+
+    bytes32 public constant GASLESS_ROLE = keccak256("GASLESS_ROLE");
 
     address public immutable override factory;
     address public immutable override WETH;
+    address public immutable feeManager;
+    uint256 MAX_UINT256 = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
 
     modifier ensure(uint256 deadline) {
         require(deadline >= block.timestamp, "PancakeRouter: EXPIRED");
         _;
     }
 
-    constructor(address _factory, address _WETH) public {
+    constructor(address _factory, address _WETH, address _feeManager, MinimalForwarder _trustedForwarder) ERC2771Context(address(_trustedForwarder)) public {
         factory = _factory;
+        feeManager = _feeManager;
         WETH = _WETH;
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        grantRole(GASLESS_ROLE, address(_trustedForwarder));
+    }
+
+    modifier onlyGaslessRole() {
+        require(hasRole(GASLESS_ROLE, msg.sender), "PancakeRouter: must have gasless role");
+        _;
     }
 
     receive() external payable {
         assert(msg.sender == WETH); // only accept ETH via fallback from the WETH contract
+    }
+
+     function _msgSender()
+        internal
+        view
+        virtual
+        override(Context, ERC2771Context)
+        returns (address sender)
+    {
+        return ERC2771Context._msgSender();
+    }
+
+    function _msgData()
+        internal
+        view
+        virtual
+        override(Context, ERC2771Context)
+        returns (bytes calldata)
+    {
+        return ERC2771Context._msgData();
     }
 
     // **** ADD LIQUIDITY ****
@@ -178,7 +212,7 @@ contract PancakeRouter is IPancakeRouter02 {
         bytes32 s
     ) external virtual override returns (uint256 amountA, uint256 amountB) {
         address pair = PancakeLibrary.pairFor(factory, tokenA, tokenB);
-        uint256 value = approveMax ? uint256(-1) : liquidity;
+        uint256 value = approveMax ? MAX_UINT256 : liquidity;
         IPancakePair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
         (amountA, amountB) = removeLiquidity(tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline);
     }
@@ -196,7 +230,7 @@ contract PancakeRouter is IPancakeRouter02 {
         bytes32 s
     ) external virtual override returns (uint256 amountToken, uint256 amountETH) {
         address pair = PancakeLibrary.pairFor(factory, token, WETH);
-        uint256 value = approveMax ? uint256(-1) : liquidity;
+        uint256 value = approveMax ? MAX_UINT256 : liquidity;
         IPancakePair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
         (amountToken, amountETH) = removeLiquidityETH(token, liquidity, amountTokenMin, amountETHMin, to, deadline);
     }
@@ -229,7 +263,7 @@ contract PancakeRouter is IPancakeRouter02 {
         bytes32 s
     ) external virtual override returns (uint256 amountETH) {
         address pair = PancakeLibrary.pairFor(factory, token, WETH);
-        uint256 value = approveMax ? uint256(-1) : liquidity;
+        uint256 value = approveMax ? MAX_UINT256 : liquidity;
         IPancakePair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
         amountETH = removeLiquidityETHSupportingFeeOnTransferTokens(
             token,
@@ -277,6 +311,33 @@ contract PancakeRouter is IPancakeRouter02 {
         _swap(amounts, path, to);
     }
 
+    // 100 USD -> 1 AAPL, GasFee: 10 USD
+    // Call Approve 100 USD
+    function swapExactTokensForTokensWithGasless(
+        uint256 amountIn,           // 90 USD
+        uint256 amountOutMin,       // 0.9 AAPL
+        uint256 amountGasFee,       // 10 USD
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external virtual ensure(deadline) returns (uint256[] memory amounts) {
+        amounts = PancakeLibrary.getAmountsOut(factory, amountIn, path);
+        require(amounts[amounts.length - 1] >= amountOutMin, "PancakeRouter: INSUFFICIENT_OUTPUT_AMOUNT");
+        TransferHelper.safeTransferFrom(
+            path[0],
+            _msgSender(),
+            PancakeLibrary.pairFor(factory, path[0], path[1]),
+            amounts[0]
+        );
+        TransferHelper.safeTransferFrom(
+            path[0],
+            _msgSender(),
+            feeManager,
+            amountGasFee
+        );
+        _swap(amounts, path, to);
+    }
+
     function swapTokensForExactTokens(
         uint256 amountOut,
         uint256 amountInMax,
@@ -293,7 +354,7 @@ contract PancakeRouter is IPancakeRouter02 {
             amounts[0]
         );
         _swap(amounts, path, to);
-    }
+    } 
 
     function swapExactETHForTokens(
         uint256 amountOutMin,

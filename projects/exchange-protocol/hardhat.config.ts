@@ -22,14 +22,16 @@ const bscMainnet: NetworkUserConfig = {
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
   networks: {
-    hardhat: {},
+    hardhat: {
+      allowUnlimitedContractSize: true,
+    },
     // testnet: bscTestnet,
     // mainnet: bscMainnet,
   },
   solidity: {
     compilers: [
       {
-        version: "0.8.4",
+        version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
