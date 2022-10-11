@@ -10,7 +10,8 @@ import "dotenv/config";
 const bscTestnet: NetworkUserConfig = {
   url: "https://data-seed-prebsc-1-s1.binance.org:8545/",
   chainId: 97,
-  accounts: [process.env.KEY_TESTNET!],
+  accounts: [process.env.OWNER_PRIVATE_KEY_TESTNET!],
+  allowUnlimitedContractSize: true,
 };
 
 const bscMainnet: NetworkUserConfig = {
@@ -25,7 +26,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       allowUnlimitedContractSize: true,
     },
-    // testnet: bscTestnet,
+    testnet: bscTestnet,
     // mainnet: bscMainnet,
   },
   solidity: {
@@ -35,7 +36,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 99999,
+            runs: 200,
           },
         },
       },
@@ -44,7 +45,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 99999,
+            runs: 200,
           },
         },
       },
@@ -53,7 +54,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 99999,
+            runs: 200,
           },
         },
       },
@@ -62,7 +63,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 99999,
+            runs: 200,
           },
         },
       },
