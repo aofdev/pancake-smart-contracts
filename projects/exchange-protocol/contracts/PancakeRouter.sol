@@ -7,7 +7,7 @@ import "./interfaces/IERC20.sol";
 import "./interfaces/IWETH.sol";
 import "./libraries/SafeMath.sol";
 
-import '@uniswap/lib/contracts/libraries/TransferHelper.sol';
+import "@uniswap/lib/contracts/libraries/TransferHelper.sol";
 import "@openzeppelin/contracts/metatx/ERC2771Context.sol";
 import "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
@@ -27,7 +27,12 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
         _;
     }
 
-    constructor(address _factory, address _WETH, address _feeManager, MinimalForwarder _trustedForwarder) ERC2771Context(address(_trustedForwarder)) public {
+    constructor(
+        address _factory,
+        address _WETH,
+        address _feeManager,
+        MinimalForwarder _trustedForwarder
+    ) public ERC2771Context(address(_trustedForwarder)) {
         factory = _factory;
         feeManager = _feeManager;
         WETH = _WETH;
@@ -44,23 +49,11 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
         assert(msg.sender == WETH); // only accept ETH via fallback from the WETH contract
     }
 
-     function _msgSender()
-        internal
-        view
-        virtual
-        override(Context, ERC2771Context)
-        returns (address sender)
-    {
+    function _msgSender() internal view virtual override(Context, ERC2771Context) returns (address sender) {
         return ERC2771Context._msgSender();
     }
 
-    function _msgData()
-        internal
-        view
-        virtual
-        override(Context, ERC2771Context)
-        returns (bytes calldata)
-    {
+    function _msgData() internal view virtual override(Context, ERC2771Context) returns (bytes calldata) {
         return ERC2771Context._msgData();
     }
 
@@ -286,8 +279,9 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
             (address input, address output) = (path[i], path[i + 1]);
             (address token0, ) = PancakeLibrary.sortTokens(input, output);
             uint256 amountOut = amounts[i + 1];
-            (uint256 amount0Out, uint256 amount1Out) =
-                input == token0 ? (uint256(0), amountOut) : (amountOut, uint256(0));
+            (uint256 amount0Out, uint256 amount1Out) = input == token0
+                ? (uint256(0), amountOut)
+                : (amountOut, uint256(0));
             address to = i < path.length - 2 ? PancakeLibrary.pairFor(factory, output, path[i + 2]) : _to;
             IPancakePair(PancakeLibrary.pairFor(factory, input, output)).swap(amount0Out, amount1Out, to, new bytes(0));
         }
@@ -314,13 +308,13 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
     // 100 USD -> 1 AAPL, GasFee: 10 USD
     // Call Approve 100 USD
     function swapExactTokensForTokensWithGasless(
-        uint256 amountIn,           // 90 USD
-        uint256 amountOutMin,       // 0.9 AAPL
-        uint256 amountGasFee,       // 10 USD
+        uint256 amountIn, // 90 USD
+        uint256 amountOutMin, // 0.9 AAPL
+        uint256 amountGasFee, // 10 USD
         address[] calldata path,
         address to,
         uint256 deadline
-    ) external virtual ensure(deadline) returns (uint256[] memory amounts) {
+    ) external virtual ensure(deadline) onlyGaslessRole returns (uint256[] memory amounts) {
         amounts = PancakeLibrary.getAmountsOut(factory, amountIn, path);
         require(amounts[amounts.length - 1] >= amountOutMin, "PancakeRouter: INSUFFICIENT_OUTPUT_AMOUNT");
         TransferHelper.safeTransferFrom(
@@ -329,12 +323,7 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
             PancakeLibrary.pairFor(factory, path[0], path[1]),
             amounts[0]
         );
-        TransferHelper.safeTransferFrom(
-            path[0],
-            _msgSender(),
-            feeManager,
-            amountGasFee
-        );
+        TransferHelper.safeTransferFrom(path[0], _msgSender(), feeManager, amountGasFee);
         _swap(amounts, path, to);
     }
 
@@ -354,7 +343,7 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
             amounts[0]
         );
         _swap(amounts, path, to);
-    } 
+    }
 
     function swapExactETHForTokens(
         uint256 amountOutMin,
@@ -440,13 +429,15 @@ contract PancakeRouter is ERC2771Context, IPancakeRouter02, AccessControl {
             {
                 // scope to avoid stack too deep errors
                 (uint256 reserve0, uint256 reserve1, ) = pair.getReserves();
-                (uint256 reserveInput, uint256 reserveOutput) =
-                    input == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
+                (uint256 reserveInput, uint256 reserveOutput) = input == token0
+                    ? (reserve0, reserve1)
+                    : (reserve1, reserve0);
                 amountInput = IERC20(input).balanceOf(address(pair)).sub(reserveInput);
                 amountOutput = PancakeLibrary.getAmountOut(amountInput, reserveInput, reserveOutput);
             }
-            (uint256 amount0Out, uint256 amount1Out) =
-                input == token0 ? (uint256(0), amountOutput) : (amountOutput, uint256(0));
+            (uint256 amount0Out, uint256 amount1Out) = input == token0
+                ? (uint256(0), amountOutput)
+                : (amountOutput, uint256(0));
             address to = i < path.length - 2 ? PancakeLibrary.pairFor(factory, output, path[i + 2]) : _to;
             pair.swap(amount0Out, amount1Out, to, new bytes(0));
         }
