@@ -4,7 +4,7 @@ import { assert } from "chai";
 import { formatEther, formatUnits, parseEther } from "ethers/lib/utils";
 import { artifacts, contract } from "hardhat";
 // import { assert, expect } from "chai";
-// import { BN, constants, expectEvent, expectRevert, time } from "@openzeppelin/test-helpers";
+import { expectEvent, expectRevert, time } from "@openzeppelin/test-helpers";
 // import { BigNumber } from "ethers";
 
 const { ethers } = require("hardhat");
@@ -95,41 +95,28 @@ describe("PancakeRouter", function () {
     );
   });
 
-  describe("Deploy", () => {
-    it("deploy something", async () => {
+  describe("User swap token A for token B", () => {
+    it("exact in fail if sender is not gasless role", async () => {
+      // Setup token A for User
+      await tokenA.connect(user).mintTokens(parseEther("100"));
+      await tokenA.connect(user).approve(pancakeRouter.address, ethers.constants.MaxUint256);
 
-    })
-  })
+      const deadline = ethers.constants.MaxUint256;
+      const swapFunction = pancakeRouter.connect(user).swapExactTokensForTokensWithGasless(
+        parseEther("90"),  // Token A
+        parseEther("0.9"), // Token B
+        parseEther("10"),  // Token A Fee 
+        [tokenA.address, tokenB.address],
+        user.address,     // To
+        deadline,
+      );
 
-  // describe("User swap token A for token B", () => {
-  //   it("exact in fail if sender is not gasless role", async () => {
-  //     // Setup token A for User
-  //     await tokenA.mintTokens(parseEther("100"), { from: unknownUser });
-  //     await tokenA.approve(pancakeRouter.address, constants.MAX_UINT256, {
-  //       from: unknownUser,
-  //     });
-
-  //     console.log("Token A before balance:", formatEther(BigNumber.from((await tokenA.balanceOf(unknownUser)).toString())));
-  //     console.log("Token B before balance:", formatEther(BigNumber.from((await tokenB.balanceOf(unknownUser)).toString())));
-
-  //     const deadline = new BN(await time.latest()).add(new BN("100"));
-  //     const task = pancakeRouter.swapExactTokensForTokensWithGasless(
-  //       parseEther("90"),  // Token A
-  //       parseEther("0.9"), // Token B
-  //       parseEther("10"),  // Token A Fee 
-  //       [tokenA.address, tokenB.address],
-  //       unknownUser, // To
-  //       deadline,
-  //       { from: unknownUser }
-  //     );
-
-  //     console.log("Token A after balance:", formatEther(BigNumber.from((await tokenA.balanceOf(unknownUser)).toString())));
-  //     console.log("Token B after balance:", formatEther(BigNumber.from((await tokenB.balanceOf(unknownUser)).toString())));
-
-  //     await expectRevert(
-  //       task,
-  //       "PancakeRouter: must have gasless role"
-  //     );
-  //   });
-  // });
+      await expectRevert(
+        swapFunction,
+        "PancakeRouter: must have gasless role"
+      );
+    });
+  });
 });
+
+
