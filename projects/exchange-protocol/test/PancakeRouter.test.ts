@@ -24,6 +24,7 @@ contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
 
   let owner = alice;
   let feeManager = bob;
+  let user = carol;
 
   before(async () => {
     // Deploy Factory
@@ -87,14 +88,14 @@ contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
 
   describe("User swap token A for token B", () => {
     it("exact in fail if sender is not gasless role", async () => {
-      // Setup token A for Bob
-      await tokenA.mintTokens(parseEther("2000000"), { from: bob });
+      // Setup token A for User
+      await tokenA.mintTokens(parseEther("2000000"), { from: user });
       await tokenA.approve(pancakeRouter.address, constants.MAX_UINT256, {
-        from: bob,
+        from: user,
       });
 
-      console.log("Token A before balance:", formatEther(BigNumber.from((await tokenA.balanceOf(bob)).toString())));
-      console.log("Token B before balance:", formatEther(BigNumber.from((await tokenB.balanceOf(bob)).toString())));
+      console.log("Token A before balance:", formatEther(BigNumber.from((await tokenA.balanceOf(user)).toString())));
+      console.log("Token B before balance:", formatEther(BigNumber.from((await tokenB.balanceOf(user)).toString())));
 
       const deadline = new BN(await time.latest()).add(new BN("100"));
       const result = await pancakeRouter.swapExactTokensForTokensWithGasless(
@@ -104,11 +105,11 @@ contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
         [tokenA.address, tokenB.address],
         minimalForwarder.address, // To
         deadline,
-        { from: bob }
+        { from: user }
       );
       // console.log(result.receipt.rawLogs)
-      console.log("Token A after balance:", formatEther(BigNumber.from((await tokenA.balanceOf(bob)).toString())));
-      console.log("Token B after balance:", formatEther(BigNumber.from((await tokenB.balanceOf(bob)).toString())));
+      console.log("Token A after balance:", formatEther(BigNumber.from((await tokenA.balanceOf(user)).toString())));
+      console.log("Token B after balance:", formatEther(BigNumber.from((await tokenB.balanceOf(user)).toString())));
     });
   });
 });
