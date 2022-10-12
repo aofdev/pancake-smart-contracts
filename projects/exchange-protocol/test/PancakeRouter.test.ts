@@ -2,20 +2,12 @@
 
 import { assert } from "chai";
 import { formatEther, formatUnits, parseEther } from "ethers/lib/utils";
-import { artifacts, contract } from "hardhat";
-// import { assert, expect } from "chai";
+import { artifacts } from "hardhat";
 import { expectEvent, expectRevert, time } from "@openzeppelin/test-helpers";
-// import { BigNumber } from "ethers";
+import { signMetaTxRequest } from "./signer";
 
 const { ethers } = require("hardhat");
-
-
-// const MockERC20 = artifacts.require("./utils/MockERC20.sol");
-// const PancakeFactory = artifacts.require("./PancakeFactory.sol");
 const PancakePair = artifacts.require("./PancakePair.sol");
-// const PancakeRouter = artifacts.require("./PancakeRouter.sol");
-// const WBNB = artifacts.require("./WBNB.sol");
-// const MinimalForwarder = artifacts.require("@openzeppelin/contracts/metatx/MinimalForwarder.sol");
 
 import { PancakeFactory } from '../typechain/PancakeFactory'
 
@@ -115,6 +107,37 @@ describe("PancakeRouter", function () {
         swapFunction,
         "PancakeRouter: must have gasless role"
       );
+    });
+
+    it("exact in success if sender is gasless role", async () => {
+      // Setup token A for User
+      await tokenA.connect(user).transfer("0x000000000000000000000000000000000000dEaD", await tokenA.balanceOf(user.address));
+      await tokenA.connect(user).mintTokens(parseEther("100"));
+      await tokenA.connect(user).approve(pancakeRouter.address, ethers.constants.MaxUint256);
+
+      assert.equal(String(await tokenA.balanceOf(user.address)), parseEther("100").toString());
+      assert.equal(String(await tokenA.balanceOf(feeManager.address)), parseEther("0").toString());
+
+      const deadline = ethers.constants.MaxUint256;
+      const { request, signature } =
+        await signMetaTxRequest(user.provider, forwarder.connect(relayer), {
+          from: user.address,
+          to: pancakeRouter.address,
+          data: pancakeRouter.interface.encodeFunctionData(
+            "swapExactTokensForTokensWithGasless", [
+            parseEther("90"),  // Token A
+            parseEther("0.9"), // Token B
+            parseEther("10"),  // Token A Fee 
+            [tokenA.address, tokenB.address],
+            user.address,     // To
+            deadline,
+          ],
+          ),
+        });
+      const result = await forwarder.execute(request, signature).then((tx) => tx.wait());
+
+      assert.equal(String(await tokenA.balanceOf(user.address)), parseEther("0").toString());
+      assert.equal(String(await tokenA.balanceOf(feeManager.address)), parseEther("10").toString());
     });
   });
 });
