@@ -25,6 +25,8 @@ contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
   let owner = alice;
   let feeManager = bob;
   let user = carol;
+  let relayer = david;
+  let unknownUser = erin;
 
   before(async () => {
     // Deploy Factory
@@ -89,27 +91,32 @@ contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
   describe("User swap token A for token B", () => {
     it("exact in fail if sender is not gasless role", async () => {
       // Setup token A for User
-      await tokenA.mintTokens(parseEther("2000000"), { from: user });
+      await tokenA.mintTokens(parseEther("100"), { from: unknownUser });
       await tokenA.approve(pancakeRouter.address, constants.MAX_UINT256, {
-        from: user,
+        from: unknownUser,
       });
 
-      console.log("Token A before balance:", formatEther(BigNumber.from((await tokenA.balanceOf(user)).toString())));
-      console.log("Token B before balance:", formatEther(BigNumber.from((await tokenB.balanceOf(user)).toString())));
+      console.log("Token A before balance:", formatEther(BigNumber.from((await tokenA.balanceOf(unknownUser)).toString())));
+      console.log("Token B before balance:", formatEther(BigNumber.from((await tokenB.balanceOf(unknownUser)).toString())));
 
       const deadline = new BN(await time.latest()).add(new BN("100"));
-      const result = await pancakeRouter.swapExactTokensForTokensWithGasless(
+      const task = pancakeRouter.swapExactTokensForTokensWithGasless(
         parseEther("90"),  // Token A
         parseEther("0.9"), // Token B
         parseEther("10"),  // Token A Fee 
         [tokenA.address, tokenB.address],
-        minimalForwarder.address, // To
+        unknownUser, // To
         deadline,
-        { from: user }
+        { from: unknownUser }
       );
-      // console.log(result.receipt.rawLogs)
-      console.log("Token A after balance:", formatEther(BigNumber.from((await tokenA.balanceOf(user)).toString())));
-      console.log("Token B after balance:", formatEther(BigNumber.from((await tokenB.balanceOf(user)).toString())));
+
+      console.log("Token A after balance:", formatEther(BigNumber.from((await tokenA.balanceOf(unknownUser)).toString())));
+      console.log("Token B after balance:", formatEther(BigNumber.from((await tokenB.balanceOf(unknownUser)).toString())));
+
+      await expectRevert(
+        task,
+        "PancakeRouter: must have gasless role"
+      );
     });
   });
 });
