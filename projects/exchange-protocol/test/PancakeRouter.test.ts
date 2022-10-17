@@ -1,109 +1,145 @@
 /* eslint-disable */
 
-import { formatUnits, parseEther } from "ethers/lib/utils";
-import { artifacts, contract } from "hardhat";
-import { assert, expect } from "chai";
-import { BN, constants, expectEvent, expectRevert, time } from "@openzeppelin/test-helpers";
+import { assert } from "chai";
+import { formatEther, formatUnits, parseEther } from "ethers/lib/utils";
+import { artifacts } from "hardhat";
+import { expectEvent, expectRevert, time } from "@openzeppelin/test-helpers";
+import { signMetaTxRequest } from "./signer";
 
-const MockERC20 = artifacts.require("./utils/MockERC20.sol");
-const PancakeFactory = artifacts.require("./PancakeFactory.sol");
+const { ethers } = require("hardhat");
 const PancakePair = artifacts.require("./PancakePair.sol");
-const PancakeRouter = artifacts.require("./PancakeRouter.sol");
-const WBNB = artifacts.require("./WBNB.sol");
-const MinimalForwarder = artifacts.require("@openzeppelin/contracts/metatx/MinimalForwarder.sol");
 
-contract("PancakeRouter", ([alice, bob, carol, david, erin]) => {
-  let pancakeFactory: any;
+import { PancakeFactory } from '../typechain/PancakeFactory'
+
+async function deploy(name, ...params) {
+  const Contract = await ethers.getContractFactory(name);
+  return await Contract.deploy(...params).then((f) => f.deployed());
+}
+
+describe("PancakeRouter", function () {
+  let pancakeFactory: PancakeFactory;
   let wrappedBNB: any;
-  let minimalForwarder: any;
+  let forwarder: any;
   let pancakeRouter: any;
   let pairAB;
-  let pairBC;
-  let pairAC;
   let tokenA;
-  let tokenC;
+  let tokenB;
+
+  let owner;
+  let feeManager;
+  let user;
+  let relayer;
+  let unknownUser;
 
   before(async () => {
-    // Deploy Factory
-    pancakeFactory = await PancakeFactory.new(alice, { from: alice });
+    const accounts = await ethers.getSigners();
 
-    // Deploy Wrapped BNB
-    wrappedBNB = await WBNB.new({ from: alice });
+    owner = accounts[0];
+    feeManager = accounts[1];
+    user = accounts[2];
+    relayer = accounts[3];
+    unknownUser = accounts[4];
 
-    // Deploy MinimalForwarder
-    minimalForwarder = await MinimalForwarder.new({ from: alice });
+    pancakeFactory = await deploy("PancakeFactory", owner.address);
+    console.log("PancakeFactory deployed to:", pancakeFactory.address);
 
-    // Deploy Router
-    pancakeRouter = await PancakeRouter.new(
+    wrappedBNB = await deploy("WBNB");
+    console.log("WBNB deployed to:", wrappedBNB.address);
+
+    forwarder = await deploy("MinimalForwarder");
+    console.log("forwarder deployed to:", forwarder.address);
+
+    pancakeRouter = await deploy(
+      "PancakeRouter",
       pancakeFactory.address,
       wrappedBNB.address,
-      erin,
-      minimalForwarder.address,
-      { from: alice }
+      feeManager.address,
+      forwarder.address,
     );
-
     console.log("PancakeRouter deployed to:", pancakeRouter.address);
 
-    // Deploy ERC20s
-    tokenA = await MockERC20.new("Token A", "TA", parseEther("10000000"), { from: alice });
-    tokenC = await MockERC20.new("Token C", "TC", parseEther("10000000"), { from: alice });
+    tokenA = await deploy("MockERC20", "Token A", "TKA", parseEther("1000000"));
+    console.log("Token A deployed to:", tokenA.address);
+    tokenB = await deploy("MockERC20", "Token B", "TKB", parseEther("1000000"));
+    console.log("Token B deployed to:", tokenB.address);
 
-    // Create 3 LP tokens
-    let result = await pancakeFactory.createPair(tokenA.address, wrappedBNB.address, { from: alice });
-    pairAB = await PancakePair.at(result.logs[0].args[2]);
-
-    result = await pancakeFactory.createPair(wrappedBNB.address, tokenC.address, { from: alice });
-    pairBC = await PancakePair.at(result.logs[0].args[2]);
-
-    result = await pancakeFactory.createPair(tokenA.address, tokenC.address, { from: alice });
-    pairAC = await PancakePair.at(result.logs[0].args[2]);
-
+    let result = await pancakeFactory.connect(owner).createPair(tokenA.address, wrappedBNB.address).then((tx) => tx.wait());
+    console.log("createPair result:", result.events[0].args.pair);
+    const pairABAddress = result.events[0].args.pair
+    pairAB = await PancakePair.at(pairABAddress);
     assert.equal(String(await pairAB.totalSupply()), parseEther("0").toString());
-    assert.equal(String(await pairBC.totalSupply()), parseEther("0").toString());
-    assert.equal(String(await pairAC.totalSupply()), parseEther("0").toString());
 
-    console.log("pairAC", pairAC.address);
-    // Mint and approve all contracts
-    for (let thisUser of [alice, bob, carol, david, erin]) {
-      await tokenA.mintTokens(parseEther("2000000"), { from: thisUser });
-      await tokenC.mintTokens(parseEther("2000000"), { from: thisUser });
+    // Provide liquidity to pairAB by Owner
+    await tokenA.connect(owner).approve(pancakeRouter.address, ethers.constants.MaxUint256);
+    await tokenB.connect(owner).approve(pancakeRouter.address, ethers.constants.MaxUint256);
 
-      await tokenA.approve(pancakeRouter.address, constants.MAX_UINT256, {
-        from: thisUser,
-      });
+    const deadline = ethers.constants.MaxUint256;
 
-      await tokenC.approve(pancakeRouter.address, constants.MAX_UINT256, {
-        from: thisUser,
-      });
-    }
-    const deadline = new BN(await time.latest()).add(new BN("100"));
-    await pancakeRouter.addLiquidity(
+    await pancakeRouter.connect(owner).addLiquidity(
       tokenA.address,
-      tokenC.address,
+      tokenB.address,
       parseEther("1000000"), // 1M token A
-      parseEther("1000000"), // 1M token C
+      parseEther("1000000"), // 1M token B
       parseEther("1000000"),
       parseEther("1000000"),
-      bob,
+      owner.address,
       deadline,
-      { from: bob }
     );
   });
 
-  describe("User swap token A for token C", () => {
-    it("exact in fail if is not gasless role", async () => {
-      const deadline = new BN(await time.latest()).add(new BN("100"));
+  describe("User swap token A for token B", () => {
+    it("exact in fail if sender is not gasless role", async () => {
+      // Setup token A for User
+      await tokenA.connect(user).mintTokens(parseEther("100"));
+      await tokenA.connect(user).approve(pancakeRouter.address, ethers.constants.MaxUint256);
 
-      const result = await pancakeRouter.swapExactTokensForTokensWithGasless(
-        parseEther("90"),
-        parseEther("0.9"),
-        parseEther("10"),
-        [tokenA.address, tokenC.address],
-        minimalForwarder.address,
+      const deadline = ethers.constants.MaxUint256;
+      const swapFunction = pancakeRouter.connect(user).swapExactTokensForTokensWithGasless(
+        parseEther("90"),  // Token A
+        parseEther("0.9"), // Token B
+        parseEther("10"),  // Token A Fee 
+        [tokenA.address, tokenB.address],
+        user.address,     // To
         deadline,
-        { from: bob }
       );
-      console.log(result.receipt.rawLogs)
+
+      await expectRevert(
+        swapFunction,
+        "PancakeRouter: must have gasless role"
+      );
+    });
+
+    it("exact in success if sender is gasless role", async () => {
+      // Setup token A for User
+      await tokenA.connect(user).transfer("0x000000000000000000000000000000000000dEaD", await tokenA.balanceOf(user.address));
+      await tokenA.connect(user).mintTokens(parseEther("100"));
+      await tokenA.connect(user).approve(pancakeRouter.address, ethers.constants.MaxUint256);
+
+      assert.equal(String(await tokenA.balanceOf(user.address)), parseEther("100").toString());
+      assert.equal(String(await tokenA.balanceOf(feeManager.address)), parseEther("0").toString());
+
+      const deadline = ethers.constants.MaxUint256;
+      const { request, signature } =
+        await signMetaTxRequest(user.provider, forwarder.connect(relayer), {
+          from: user.address,
+          to: pancakeRouter.address,
+          data: pancakeRouter.interface.encodeFunctionData(
+            "swapExactTokensForTokensWithGasless", [
+            parseEther("90"),  // Token A
+            parseEther("0.9"), // Token B
+            parseEther("10"),  // Token A Fee 
+            [tokenA.address, tokenB.address],
+            user.address,     // To
+            deadline,
+          ],
+          ),
+        });
+      const result = await forwarder.execute(request, signature).then((tx) => tx.wait());
+
+      assert.equal(String(await tokenA.balanceOf(user.address)), parseEther("0").toString());
+      assert.equal(String(await tokenA.balanceOf(feeManager.address)), parseEther("10").toString());
     });
   });
 });
+
+
